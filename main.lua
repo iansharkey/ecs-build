@@ -3,11 +3,24 @@ local io = require "io"
 local md5 = require "md5"
 
 
+local file_entity_cache = {}
 function add_file(e)
   -- locate an existing entity with this name
-  -- if no entity, create and cache
-  -- update world
+  local cached = file_entity_cache[e.filename]
+  if cached then
+   -- merge existing key/value pairs into cached entity
+   for k,v in pairs(e) do
+   
+    cached[k] = v
+   end
+  else
+   -- if no entity, create and cache
+   cached = e
+   file_entity_cache[e.filename] = cached
+  end
 
+  -- update world
+  world:add(cached)
 end
 
 
@@ -34,7 +47,6 @@ printChangedSystem.filter = tiny.requireAll('filename', 'changed')
 
 function printChangedSystem:process(e)
   print(e.filename, e.changed, "changed", e.contentlang)
-  print(e.compiler_command)
   e.changed = nil
   world:add(e)
 end
@@ -64,7 +76,7 @@ end
 
 
 local identifyCompilerSystem = tiny.processingSystem()
-identifyCompilerSystem.filter = tiny.filter('filename&contentlang&!compilercommand')
+identifyCompilerSystem.filter = tiny.filter('filename&old_md5&contentlang&!compilercommand')
 
 function identifyCompilerSystem:process(e)
   print("identifying", e.filename, e.contentlang, e.compilercommand)
@@ -78,13 +90,13 @@ function identifyCompilerSystem:process(e)
       local output_file = { filename = fileprefix .. ".o", old_md5 = '', intermediate = true }
 
       table.insert(e.creates,output_file)
-      world:add(output_file)
+      add_file(output_file)
     elseif e.contentlang == "Object file" then
       e.creates = e.creates or {}
       local output_file = { filename = fileprefix, old_md5 = '', intermediate = true }
 
       table.insert(e.creates,output_file)
-      world:add(output_file)
+      add_file(output_file)
     end
   else
     e.compilercommand = ''
@@ -113,14 +125,14 @@ world = tiny.world(detectChangeSystem,
 		   artifactPublishSystem,
 	           printChangedSystem)
 
--- TODO: cannot have two entities with same canonical filename; need to merge (eg, file3 below would need to merge with an intermediate output)
-
 local file1 = { filename = "file1.c", old_md5 = '' }
 local file2 = { filename = "file2.py", old_md5 = '' }
 
-local file3 = { filename = "output_exe", old_md5 = '', artifact = true }
+local file3 = { filename = "file1", artifact = true }
 
-world:add(file1, file2)
+add_file(file1)
+add_file(file2)
+add_file(file3)
 
 for i = 1,50 do
  world:update()
