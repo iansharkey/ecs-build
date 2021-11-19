@@ -1,8 +1,12 @@
 local tiny = require "lib.tiny"
 local io = require "io"
 local md5 = require "md5"
+local lfs = require "lfs"
+local os = require "os"
 
 
+-- todo: handle destructive updates
+--  maybe use metatables?
 local file_entity_cache = {}
 function add_file(e)
   -- locate an existing entity with this name
@@ -23,11 +27,33 @@ function add_file(e)
   world:add(cached)
 end
 
+local detectModificationTimeChangeSystem = tiny.processingSystem()
+detectModificationTimeChangeSystem.filter = tiny.requireAll('filename')
 
-local detectChangeSystem = tiny.processingSystem()
-detectChangeSystem.filter = tiny.requireAll('filename', 'old_md5')
+function detectModificationTimeChangeSystem:process(e)
+  if e.lastbuildtime == nil then
+    e.lastbuildtime = 0
+  end
 
-function detectChangeSystem:process(e)
+  local mtime = lfs.attributes(e.filename, "modification")
+  
+  if mtime and mtime > e.lastbuildtime then
+    print(e.filename, "mtime changed")
+    e.changed = true
+    e.lastbuildtime = mtime
+  end
+  world:add(e)
+end
+
+
+local detectContentChangeSystem = tiny.processingSystem()
+detectContentChangeSystem.filter = tiny.requireAll('filename', 'changed', 'old_md5')
+
+function detectContentChangeSystem:process(e)
+  if e.changed then -- early out if already known to be changed
+    return
+  end
+
   local fp = io.open(e.filename, "rb")
   local new_hash
   if fp then
@@ -121,7 +147,7 @@ compiler_commands = {
 
 world = tiny.world(detectChangeSystem,
       	           identifyCompilerSystem,
-		   detectFileTypeSystem,
+		   detectModificationTimeChangeSystem,
 		   artifactPublishSystem,
 	           printChangedSystem)
 
